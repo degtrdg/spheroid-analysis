@@ -127,3 +127,12 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Macos
+.DS_Store
+
+# Personal Notebook
+Notebook.md
+
+# data
+data
