@@ -92,13 +92,7 @@ def blue_red_cell_scatter(file,data):
     plt.plot(np.append(points[hull.vertices,0],points[hull.vertices[0],0]), np.append(points[hull.vertices,1],points[hull.vertices[0],1]), 'r--', lw=2)
 
     # intrinsic and extrinsic noise
-    points_blue = means_blue
-    points_red = means_red
-    points_blue_mean = np.mean(points_blue)
-    points_red_mean = np.mean(points_red)
-    intrinsic = (1/len(points_blue))*sum([0.5*(blue - red)**2 for blue, red in zip(points_blue, points_red)])/(points_blue_mean * points_red_mean)
-    extrinsic = (1/len(points_blue))*(sum([blue*red for blue, red in zip(points_blue, points_red)]) - points_red_mean*points_blue_mean) /(points_blue_mean * points_red_mean)
-    total = (1/len(points_blue))*(sum([0.5*(blue**2 + red**2) for blue, red in zip(points_blue, points_red)])-  points_red_mean*points_blue_mean)/(points_red_mean*points_blue_mean)
+    intrinsic, extrinsic, total = get_noise_not_centered(means_red, means_blue)
     data["intrinsics"].append(intrinsic)
     data["extrinsics"].append(extrinsic)
     data["totals"].append(total)
@@ -201,6 +195,36 @@ def cell_count(file):
     outlines = utils.outlines_list(dat_red['masks'])
     masked_imgs_red = get_cell_masks(img_red,outlines)
     return np.array([len(masked_imgs_blue),len(masked_imgs_red)])
+
+def get_noise_elowitz(points_blue, points_red):
+    """
+    From Elowitz and assumes that noise is on y = x line
+    """
+    points_blue_mean = np.mean(points_blue)
+    points_red_mean = np.mean(points_red)
+    intrinsic = (1/len(points_blue))*sum([0.5*(blue - red)**2 for blue, red in zip(points_blue, points_red)])/(points_blue_mean * points_red_mean)
+    extrinsic = (1/len(points_blue))*(sum([blue*red for blue, red in zip(points_blue, points_red)]) - points_red_mean*points_blue_mean) /(points_blue_mean * points_red_mean)
+    total = (1/len(points_blue))*(sum([0.5*(blue**2 + red**2) for blue, red in zip(points_blue, points_red)])-  points_red_mean*points_blue_mean)/(points_red_mean*points_blue_mean)
+    return (intrinsic, extrinsic, total)
+
+def get_noise_not_centered(points_blue, points_red):
+    """
+    From Bleris and does not assume that noise is on y = x line
+    """
+    cov = np.cov(points_blue, points_red)
+    points_blue_mean = np.mean(points_blue)
+    points_red_mean = np.mean(points_red)
+    # Extrinsic
+    extrinsic = np.sqrt(cov[0,1])/(points_blue_mean * points_red_mean)
+    # Intrinsic
+    delta = 1
+    red_std = np.std(points_red)
+    blue_std = np.std(points_blue)
+    alpha = blue_std**2 - (red_std**2)*delta + np.sqrt((blue_std**2 - (red_std**2)*delta)**2 + 4*delta*cov)
+    beta = 2*np.sqrt(cov)
+    rms = np.sqrt((alpha**2*red_std**2-2*alpha*beta*np.sqrt(cov)+beta**2*blue_std**2)/(alpha**2+beta**2))
+    total = (rms**2)/(points_blue_mean * points_red_mean)
+    return (rms, extrinsic, total)
 
 # Pixel level
 def blue_v_red_dist(i,data):
