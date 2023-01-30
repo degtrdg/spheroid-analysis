@@ -29,10 +29,7 @@ def get_cell_masks(img, outlines):
         masked_imgs.append(masked_img)
     return masked_imgs
 
-def blue_red_cell_scatter(file,data):
-    font = {'weight':'bold','size': 22}
-    plt.rc('font', **font)
-    
+def get_cell_means(file):
     # red limit
     dat_red = np.load(f'red/{file}_seg.npy', allow_pickle=True).item()
     img_red = dat_red['img']
@@ -52,13 +49,27 @@ def blue_red_cell_scatter(file,data):
     masked_imgs_red = get_cell_masks(img_red,outlines)
     means_red = np.array([np.mean(get_pixel_intensities(img_red, np.where(masked_img > 0))) for masked_img in masked_imgs_red])
 
+    return means_blue, means_red, outlines, dat_blue
+
+def blue_red_cell_scatter(file,data):
+    font = {'weight':'bold','size': 22}
+    plt.rc('font', **font)
+    
+    if 'augment' in data and data['augment']:
+        means_blue1, means_red1, outlines, dat_blue = get_cell_means(file[0])
+        means_blue2, means_red2, outlines, dat_blue = get_cell_means(file[0])
+        means_blue = np.concatenate((means_blue1, means_blue2))
+        means_red = np.concatenate((means_red1, means_red2))
+    else:
+        means_blue, means_red, outlines, dat_blue = get_cell_means(file)
+
     # plot image with outlines overlaid in red (this is for blue segmentation)
     plt.figure(figsize=(12,10))
     plt.imshow(dat_blue['img'])
     for o in outlines:
         plt.plot(o[:,0], o[:,1], color='r')
 
-    if data['remove_outliers']:
+    if 'remove_outliers' in data and data['remove_outliers']:
         points = np.array([means_red, means_blue]).T
         outliers, _ = mahalanobis_method(points)
         # Remove outliers from points
@@ -286,6 +297,52 @@ def create_gif(name_of_file, plotting_function, left, right, images, data, no_im
     # Remove files
     for filename in set(filenames):
         os.remove(filename)
+
+def create_gif(name_of_file, plotting_function, filenames, data):
+    # For use in aug data with 2 files for each image 
+    for i in filenames:
+        plotting_function(i, data)
+        # create file name and append it to a list
+        filename = f'{i[0]}.png'
+        # save frame
+        plt.savefig(filename)
+        plt.close()
+    
+    # build gif
+    with imageio.get_writer(name_of_file, mode='I') as writer:
+        for i in filenames:
+            imgs = [Image.open(i[0])]
+            _pil_grid(imgs).save('temp.png')
+            image = imageio.imread('temp.png')
+            os.remove('temp.png')
+            writer.append_data(image)
+            
+    # Remove files
+    for filename in set(filenames):
+        os.remove(filename[0])
+
+def create_gif(name_of_file, plotting_function, filenames, data):
+    # For use in aug data with 2 files for each image 
+    for i in filenames:
+        plotting_function(i, data)
+        # create file name and append it to a list
+        filename = f'{i[0]}.png'
+        # save frame
+        plt.savefig(filename)
+        plt.close()
+    
+    # build gif
+    with imageio.get_writer(name_of_file, mode='I') as writer:
+        for i in filenames:
+            imgs = [Image.open(i[0])]
+            _pil_grid(imgs).save('temp.png')
+            image = imageio.imread('temp.png')
+            os.remove('temp.png')
+            writer.append_data(image)
+            
+    # Remove files
+    for filename in set(filenames):
+        os.remove(filename[0])
 
 def _pil_grid(images, max_horiz=np.iinfo(int).max):
     n_images = len(images)
