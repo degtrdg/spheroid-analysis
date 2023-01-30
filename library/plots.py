@@ -258,10 +258,14 @@ def mahalanobis_method(data):
 
 # General
 def create_gif(name_of_file, plotting_function, percent_of_side, images, data, no_images=False):
+    left = len(images)*percent_of_side 
+    right = len(images)*(1-percent_of_side)
+    create_gif(name_of_file, plotting_function, left, right, images, data, no_images=no_images)
+
+def create_gif(name_of_file, plotting_function, left, right, images, data, no_images=False):
     filenames = []
-    for i in range(len(images)):
-        if i >= len(images)*percent_of_side and i <= len(images)*(1-percent_of_side):
-            plotting_function(i, data)
+    for i in range(left, right):
+        plotting_function(i, data)
         # create file name and append it to a list
         filename = f'{i}.png'
         filenames.append(filename)
@@ -272,13 +276,12 @@ def create_gif(name_of_file, plotting_function, percent_of_side, images, data, n
     
     # build gif
     with imageio.get_writer(name_of_file, mode='I') as writer:
-        for i in range(len(filenames)):
-            if i >= len(images)*percent_of_side and i <= len(images)*(1-percent_of_side):
-                imgs = [Image.open(filenames[i])] if no_images else [Image.fromarray(x) for x in images[i]] + [Image.open(filenames[i])]
-                _pil_grid(imgs).save('temp.png')
-                image = imageio.imread('temp.png')
-                os.remove('temp.png')
-                writer.append_data(image)
+        for i in range(left, right):
+            imgs = [Image.open(filenames[i])] if no_images else [Image.fromarray(x) for x in images[i]] + [Image.open(filenames[i])]
+            _pil_grid(imgs).save('temp.png')
+            image = imageio.imread('temp.png')
+            os.remove('temp.png')
+            writer.append_data(image)
             
     # Remove files
     for filename in set(filenames):
