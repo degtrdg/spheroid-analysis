@@ -271,9 +271,9 @@ def mahalanobis_method(data):
 def create_gif(name_of_file, plotting_function, percent_of_side, images, data, no_images=False):
     left = len(images)*percent_of_side 
     right = len(images)*(1-percent_of_side)
-    create_gif(name_of_file, plotting_function, left, right, images, data, no_images=no_images)
+    create_gif_left_right(name_of_file, plotting_function, left, right, images, data, no_images=no_images)
 
-def create_gif(name_of_file, plotting_function, left, right, images, data, no_images=False):
+def create_gif_left_right(name_of_file, plotting_function, left, right, images, data, no_images=False):
     filenames = []
     for i in range(left, right):
         plotting_function(i, data)
@@ -298,7 +298,7 @@ def create_gif(name_of_file, plotting_function, left, right, images, data, no_im
     for filename in set(filenames):
         os.remove(filename)
 
-def create_gif(name_of_file, plotting_function, filenames, data):
+def create_gif_filenames(name_of_file, plotting_function, filenames, data):
     # For use in aug data with 2 files for each image 
     for i in filenames:
         plotting_function(i, data)
@@ -311,7 +311,7 @@ def create_gif(name_of_file, plotting_function, filenames, data):
     # build gif
     with imageio.get_writer(name_of_file, mode='I') as writer:
         for i in filenames:
-            imgs = [Image.open(i[0])]
+            imgs = [Image.open(f'{i[0]}.png')]
             _pil_grid(imgs).save('temp.png')
             image = imageio.imread('temp.png')
             os.remove('temp.png')
@@ -319,30 +319,7 @@ def create_gif(name_of_file, plotting_function, filenames, data):
             
     # Remove files
     for filename in set(filenames):
-        os.remove(filename[0])
-
-def create_gif(name_of_file, plotting_function, filenames, data):
-    # For use in aug data with 2 files for each image 
-    for i in filenames:
-        plotting_function(i, data)
-        # create file name and append it to a list
-        filename = f'{i[0]}.png'
-        # save frame
-        plt.savefig(filename)
-        plt.close()
-    
-    # build gif
-    with imageio.get_writer(name_of_file, mode='I') as writer:
-        for i in filenames:
-            imgs = [Image.open(i[0])]
-            _pil_grid(imgs).save('temp.png')
-            image = imageio.imread('temp.png')
-            os.remove('temp.png')
-            writer.append_data(image)
-            
-    # Remove files
-    for filename in set(filenames):
-        os.remove(filename[0])
+        os.remove(f'{filename[0]}.png')
 
 def _pil_grid(images, max_horiz=np.iinfo(int).max):
     n_images = len(images)
