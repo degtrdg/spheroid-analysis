@@ -1,10 +1,197 @@
 import imageio
+from scipy.spatial import ConvexHull
+from cellpose import plot, utils
 import os
+from scipy import interpolate
+import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
+import scipy
+from scipy.stats import chi2
+from sklearn.covariance import MinCovDet
 
 # Plotting functions
+# Cell level
+def get_cell_masks(img, outlines):
+    masked_imgs= []
+    for o in outlines:
+        x = o[:,0]
+        y = o[:,1]
+        x = np.r_[x, x[0]]
+        y = np.r_[y, y[0]]
+        tck, u = interpolate.splprep([x, y], s=0, per=True)
+        xi, yi = interpolate.splev(np.linspace(0, 1, 1000), tck)
+        contour = np.array([[xii, yii] for xii, yii in zip(xi.astype(int), yi.astype(int))])
+        mask    = np.zeros_like(img)
+        cv2.fillPoly(mask, pts=[contour], color=(255, 255, 255))
+        masked_img = cv2.bitwise_and(img, mask)
+        masked_imgs.append(masked_img)
+    return masked_imgs
+
+def blue_red_cell_scatter(file,data):
+    font = {'weight':'bold','size': 22}
+    plt.rc('font', **font)
+    
+    # red limit
+    dat_red = np.load(f'red/{file}_seg.npy', allow_pickle=True).item()
+    img_red = dat_red['img']
+    # blue limit
+    dat_blue = np.load(f'blue/{file}_seg.npy', allow_pickle=True).item()
+    img_blue = dat_blue['img']
+
+    # Use cell_count to pick which channel has the most cells
+    cell_counts = cell_count(file)
+    if cell_counts[0] > cell_counts[1]:
+        outlines = utils.outlines_list(dat_blue['masks'])
+    else:
+        outlines = utils.outlines_list(dat_red['masks'])
+
+    masked_imgs_blue = get_cell_masks(img_blue,outlines)
+    means_blue = np.array([np.mean(get_pixel_intensities(img_blue, np.where(masked_img > 0))) for masked_img in masked_imgs_blue])
+    masked_imgs_red = get_cell_masks(img_red,outlines)
+    means_red = np.array([np.mean(get_pixel_intensities(img_red, np.where(masked_img > 0))) for masked_img in masked_imgs_red])
+
+    # plot image with outlines overlaid in red (this is for blue segmentation)
+    plt.figure(figsize=(12,10))
+    plt.imshow(dat_blue['img'])
+    for o in outlines:
+        plt.plot(o[:,0], o[:,1], color='r')
+
+    if data['remove_outliers']:
+        points = np.array([means_red, means_blue]).T
+        outliers, _ = mahalanobis_method(points)
+        # Remove outliers from points
+        points = np.delete(points, outliers, axis=0)
+        means_red = points[:,0]
+        means_blue = points[:,1]
+        # print(f'Number of cells after removing outliers: {len(points)}')
+
+    # scatter plot
+    plt.plot(means_red, means_blue, 'o')
+    plt.xlabel('Mean mKate2')
+    plt.ylabel('Mean CFP')
+    plt.gca().set_ylim(-0.5, data['lim'])
+    plt.gca().set_xlim(-0.5, data['lim'])
+    plt.title(f'Mean CFP vs Mean mKate2 Intensity at frame {file}')
+
+    # Convex Hull around the data points
+    points = np.array([means_red, means_blue]).T
+    hull = ConvexHull(points)
+    plt.plot(np.append(points[hull.vertices,0],points[hull.vertices[0],0]), np.append(points[hull.vertices,1],points[hull.vertices[0],1]), 'r--', lw=2)
+
+    # intrinsic and extrinsic noise
+    points_blue = means_blue
+    points_red = means_red
+    points_blue_mean = np.mean(points_blue)
+    points_red_mean = np.mean(points_red)
+    intrinsic = (1/len(points_blue))*sum([0.5*(blue - red)**2 for blue, red in zip(points_blue, points_red)])/(points_blue_mean * points_red_mean)
+    extrinsic = (1/len(points_blue))*(sum([blue*red for blue, red in zip(points_blue, points_red)]) - points_red_mean*points_blue_mean) /(points_blue_mean * points_red_mean)
+    total = (1/len(points_blue))*(sum([0.5*(blue**2 + red**2) for blue, red in zip(points_blue, points_red)])-  points_red_mean*points_blue_mean)/(points_red_mean*points_blue_mean)
+    data["intrinsics"].append(intrinsic)
+    data["extrinsics"].append(extrinsic)
+    data["totals"].append(total)
+    data["cv_red"].append(np.std(means_red)/np.mean(means_red))
+    data["cv_blue"].append(np.std(means_blue)/np.mean(means_blue))
+
+def plot_cell_mean_hist(file, data):
+    font = {'weight' : 'normal','size'   : 15}
+    plt.rc('font', **font)
+    # red limit
+    dat_red = np.load(f'red/{file}_seg.npy', allow_pickle=True).item()
+    img_red = dat_red['img']
+    # blue limit
+    dat_blue = np.load(f'blue/{file}_seg.npy', allow_pickle=True).item()
+    img_blue = dat_blue['img']
+
+    outlines = utils.outlines_list(dat_blue['masks'])
+    # Use cell_count to pick which channel has the most cells
+    cell_counts = cell_count(file)
+    if cell_counts[0] > cell_counts[1]:
+        outlines = utils.outlines_list(dat_blue['masks'])
+    else:
+        outlines = utils.outlines_list(dat_red['masks'])
+
+    masked_imgs_blue = get_cell_masks(img_blue,outlines)
+    means_blue = np.array([np.mean(get_pixel_intensities(img_blue, np.where(masked_img > 0))) for masked_img in masked_imgs_blue])
+    masked_imgs_red = get_cell_masks(img_red,outlines)
+    means_red = np.array([np.mean(get_pixel_intensities(img_red, np.where(masked_img > 0))) for masked_img in masked_imgs_red])
+
+    # Exclude outliers in the data
+    def reject_outliers(data, m=1):
+        return data[abs(data - np.mean(data)) < m * np.std(data)]
+    means_blue = reject_outliers(means_blue)
+    means_red = reject_outliers(means_red)
+
+    fig, axs = plt.subplots(2, 2,)
+    fig.set_size_inches(20, 10)
+    axs[0, 0].imshow(img_blue)
+    axs[0, 0].set_title(f'CFP channel at frame {file}')
+    axs[0, 0].set_yticks([])
+    axs[0, 0].set_xticks([])
+    for o in outlines:
+        axs[0, 0].plot(o[:,0], o[:,1], color='r')
+
+    axs[0, 1].hist(means_blue, bins = np.arange(500, data['max_limit']*.5 + 100, 100))
+    axs[0, 1].set(xlabel='Mean intensity', ylabel='Count')
+    axs[0, 1].set_ylim(0,6)
+    axs[0, 1].set_title('Mean CFP expression')
+
+    axs[1, 0].imshow(img_red)
+    axs[1, 0].set_title(f'mKate2 channel at frame {file}')
+    axs[1, 0].set_yticks([])
+    axs[1, 0].set_xticks([])
+    for o in outlines:
+        axs[1, 0].plot(o[:,0], o[:,1], color='r')
+
+    axs[1, 1].hist(means_red, np.arange(500, data['max_limit']*.5 + 100, 100))
+    axs[1, 1].set_ylim(0,6)
+    axs[1, 1].set(xlabel='Mean intensity', ylabel='Count')
+    axs[1, 1].set_title('Mean mKate2 expression')
+
+    fig.tight_layout()
+    fig.show()
+
+# Cell utils
+def get_pixel_intensities(img, pts):
+    pixel_intensities = img[pts[0], pts[1]] 
+    return pixel_intensities
+
+def _xy_lim(file):
+    # red limit
+    dat = np.load(f'red/{file}_seg.npy', allow_pickle=True).item()
+    img = dat['img']
+    outlines = utils.outlines_list(dat['masks'])
+    masked_imgs_red = get_cell_masks(img,outlines)
+    means_red = np.array([np.mean(get_pixel_intensities(img, np.where(masked_img > 0))) for masked_img in masked_imgs_red])
+
+    # blue limit
+    dat = np.load(f'blue/{file}_seg.npy', allow_pickle=True).item()
+    img = dat['img']
+    masked_imgs_blue = get_cell_masks(img,outlines)
+    means_blue = np.array([np.mean(get_pixel_intensities(img, np.where(masked_img > 0))) for masked_img in masked_imgs_blue])
+
+    return max((np.max(means_red),np.max(means_blue)))
+
+def max_limit(data,percent_of_side=0.1):
+    max_lim = 0
+    for idx in range(len(data)):
+        if idx >= len(data)*percent_of_side and idx <= len(data)*(1-percent_of_side):
+            max_lim = max(max_lim, _xy_lim(f'{idx}'))
+    return max_lim
+
+def cell_count(file):
+    dat_blue = np.load(f'blue/{file}_seg.npy', allow_pickle=True).item()
+    dat_red = np.load(f'red/{file}_seg.npy', allow_pickle=True).item()
+    img_blue = dat_blue['img']
+    img_red = dat_red['img']
+    outlines = utils.outlines_list(dat_blue['masks'])
+    masked_imgs_blue = get_cell_masks(img_blue,outlines)
+    outlines = utils.outlines_list(dat_red['masks'])
+    masked_imgs_red = get_cell_masks(img_red,outlines)
+    return np.array([len(masked_imgs_blue),len(masked_imgs_red)])
+
+# Pixel level
 def blue_v_red_dist(i,data):
     plt.hist(np.log(data['points_red'][i][0]/data['points_blue'][i][0]), bins=100, color='b', alpha=0.5, label='Outer',density=True)
     plt.axvline((np.log(data['points_red'][i][0]/data['points_blue'][i][0])).mean(), color='b', linestyle='dashed', linewidth=1)
@@ -42,6 +229,34 @@ def density_scatter(i,data):
     ax.set_yscale('log')
     plt.title(f'Blue vs Red Intensity at {i}')
 
+# Stats
+def mahalanobis_method(data):
+    #Minimum covariance determinant
+    rng = np.random.RandomState(0)
+    real_cov = np.cov(data.T)
+    X = rng.multivariate_normal(mean=np.mean(data, axis=0), cov=real_cov, size=506)
+    cov = MinCovDet(random_state=0).fit(X)
+    mcd = cov.covariance_ #robust covariance metric
+    robust_mean = cov.location_  #robust mean
+    inv_covmat = scipy.linalg.inv(mcd) #inverse covariance metric
+    
+    #Robust M-Distance
+    x_minus_mu = data - robust_mean
+    left_term = np.dot(x_minus_mu, inv_covmat)
+    mahal = np.dot(left_term, x_minus_mu.T)
+    md = np.sqrt(mahal.diagonal())
+    
+    #Flag as outlier
+    outlier = []
+    C = np.sqrt(chi2.ppf((1-0.05), df=data.shape[1]))#degrees of freedom = number of variables
+    for index, value in enumerate(md):
+        if value > C:
+            outlier.append(index)
+        else:
+            continue
+    return outlier, md
+
+# General
 def create_gif(name_of_file, plotting_function, percent_of_side, images, data, no_images=False):
     filenames = []
     for i in range(len(images)):
