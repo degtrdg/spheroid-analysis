@@ -211,20 +211,20 @@ def get_noise_not_centered(points_blue, points_red):
     """
     From Bleris and does not assume that noise is on y = x line
     """
-    cov = np.cov(points_blue, points_red)
+    cov = np.cov(points_blue, points_red)[0,1]
     points_blue_mean = np.mean(points_blue)
     points_red_mean = np.mean(points_red)
     # Extrinsic
-    extrinsic = np.sqrt(cov[0,1])/(points_blue_mean * points_red_mean)
+    extrinsic = cov/(points_blue_mean * points_red_mean)
     # Intrinsic
     delta = 1
     red_std = np.std(points_red)
     blue_std = np.std(points_blue)
-    alpha = blue_std**2 - (red_std**2)*delta + np.sqrt((blue_std**2 - (red_std**2)*delta)**2 + 4*delta*cov)
-    beta = 2*np.sqrt(cov)
-    rms = np.sqrt((alpha**2*red_std**2-2*alpha*beta*np.sqrt(cov)+beta**2*blue_std**2)/(alpha**2+beta**2))
-    total = (rms**2)/(points_blue_mean * points_red_mean)
-    return (rms, extrinsic, total)
+    alpha = blue_std**2 - (red_std**2)*delta + np.sqrt((blue_std**2 - (red_std**2)*delta)**2 + 4*delta*cov**2)
+    beta = 2*cov
+    rms = np.sqrt((alpha**2*red_std**2-2*alpha*beta*cov+beta**2*blue_std**2)/(alpha**2+beta**2))
+    intrinsic = (rms**2)/(points_blue_mean * points_red_mean)
+    return (intrinsic, extrinsic, intrinsic+extrinsic)
 
 # Pixel level
 def blue_v_red_dist(i,data):
@@ -342,7 +342,7 @@ def create_gif_filenames(name_of_file, plotting_function, filenames, data):
             writer.append_data(image)
             
     # Remove files
-    for filename in set(filenames):
+    for filename in filenames:
         os.remove(f'{filename[0]}.png')
 
 def _pil_grid(images, max_horiz=np.iinfo(int).max):
