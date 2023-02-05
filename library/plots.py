@@ -57,17 +57,20 @@ def blue_red_cell_scatter(file,data):
     
     if 'augment' in data and data['augment']:
         means_blue1, means_red1, outlines, dat_blue = get_cell_means(file[0])
-        means_blue2, means_red2, outlines, dat_blue = get_cell_means(file[0])
+        means_blue2, means_red2, outlines, dat_blue = get_cell_means(file[1])
         means_blue = np.concatenate((means_blue1, means_blue2))
         means_red = np.concatenate((means_red1, means_red2))
     else:
         means_blue, means_red, outlines, dat_blue = get_cell_means(file)
 
     # plot image with outlines overlaid in red (this is for blue segmentation)
-    plt.figure(figsize=(12,10))
-    plt.imshow(dat_blue['img'])
+    # Create a figure with 3 subplots side by side
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+    ax1.imshow(dat_blue['img'])
     for o in outlines:
-        plt.plot(o[:,0], o[:,1], color='r')
+        ax1.plot(o[:,0], o[:,1], color='r')
+
+    ax1.axis('off')
 
     if 'remove_outliers' in data and data['remove_outliers']:
         points = np.array([means_red, means_blue]).T
@@ -79,17 +82,19 @@ def blue_red_cell_scatter(file,data):
         # print(f'Number of cells after removing outliers: {len(points)}')
 
     # scatter plot
-    plt.plot(means_red, means_blue, 'o')
-    plt.xlabel('Mean mKate2')
-    plt.ylabel('Mean CFP')
-    plt.gca().set_ylim(-0.5, data['lim'])
-    plt.gca().set_xlim(-0.5, data['lim'])
-    plt.title(f'Mean CFP vs Mean mKate2 Intensity at frame {file}')
+    ax2.plot(means_red, means_blue, 'o')
+    ax2.set_xlabel('Mean mKate2')
+    ax2.set_ylabel('Mean CFP')
+    ax2.set_ylim(-0.5, data['lim'])
+    ax2.set_xlim(-0.5, data['lim'])
+    fig.suptitle(f'Mean CFP vs Mean mKate2 Intensity at frame {file}')
+    # Remove axis labels and tick marks from all subplots
 
     # Convex Hull around the data points
     points = np.array([means_red, means_blue]).T
     hull = ConvexHull(points)
-    plt.plot(np.append(points[hull.vertices,0],points[hull.vertices[0],0]), np.append(points[hull.vertices,1],points[hull.vertices[0],1]), 'r--', lw=2)
+    ax2.plot(np.append(points[hull.vertices,0],points[hull.vertices[0],0]), np.append(points[hull.vertices,1],points[hull.vertices[0],1]), 'r--', lw=2)
+    plt.tight_layout()
 
     # intrinsic and extrinsic noise
     intrinsic, extrinsic, total = get_noise_not_centered(means_red, means_blue)
@@ -103,25 +108,20 @@ def plot_cell_mean_hist(file, data):
     font = {'weight' : 'normal','size'   : 15}
     plt.rc('font', **font)
     # red limit
-    dat_red = np.load(f'red/{file}_seg.npy', allow_pickle=True).item()
-    img_red = dat_red['img']
-    # blue limit
-    dat_blue = np.load(f'blue/{file}_seg.npy', allow_pickle=True).item()
-    img_blue = dat_blue['img']
 
-    outlines = utils.outlines_list(dat_blue['masks'])
-    # Use cell_count to pick which channel has the most cells
-    cell_counts = cell_count(file)
-    if cell_counts[0] > cell_counts[1]:
-        outlines = utils.outlines_list(dat_blue['masks'])
+    if 'augment' in data and data['augment']:
+        means_blue1, means_red1, outlines, _ = get_cell_means(file[0])
+        means_blue2, means_red2, _ , _ = get_cell_means(file[1])
+        means_blue = np.concatenate((means_blue1, means_blue2))
+        means_red = np.concatenate((means_red1, means_red2))
+        file = file[0]
     else:
-        outlines = utils.outlines_list(dat_red['masks'])
+        means_blue, means_red, outlines, _ = get_cell_means(file)
 
-    masked_imgs_blue = get_cell_masks(img_blue,outlines)
-    means_blue = np.array([np.mean(get_pixel_intensities(img_blue, np.where(masked_img > 0))) for masked_img in masked_imgs_blue])
-    masked_imgs_red = get_cell_masks(img_red,outlines)
-    means_red = np.array([np.mean(get_pixel_intensities(img_red, np.where(masked_img > 0))) for masked_img in masked_imgs_red])
-
+    dat_red = np.load(f'red/{file}_seg.npy', allow_pickle=True).item()
+    dat_blue = np.load(f'blue/{file}_seg.npy', allow_pickle=True).item()
+    img_red = dat_red['img']
+    img_blue = dat_blue['img']
     # Exclude outliers in the data
     def reject_outliers(data, m=1):
         return data[abs(data - np.mean(data)) < m * np.std(data)]
@@ -139,7 +139,7 @@ def plot_cell_mean_hist(file, data):
 
     axs[0, 1].hist(means_blue, bins = np.arange(500, data['max_limit']*.5 + 100, 100))
     axs[0, 1].set(xlabel='Mean intensity', ylabel='Count')
-    axs[0, 1].set_ylim(0,6)
+    axs[0, 1].set_ylim(0,14)
     axs[0, 1].set_title('Mean CFP expression')
 
     axs[1, 0].imshow(img_red)
@@ -150,7 +150,7 @@ def plot_cell_mean_hist(file, data):
         axs[1, 0].plot(o[:,0], o[:,1], color='r')
 
     axs[1, 1].hist(means_red, np.arange(500, data['max_limit']*.5 + 100, 100))
-    axs[1, 1].set_ylim(0,6)
+    axs[1, 1].set_ylim(0,14)
     axs[1, 1].set(xlabel='Mean intensity', ylabel='Count')
     axs[1, 1].set_title('Mean mKate2 expression')
 
@@ -223,10 +223,10 @@ def get_noise_not_centered(points_blue, points_red):
     alpha = blue_std**2 - (red_std**2)*delta + np.sqrt((blue_std**2 - (red_std**2)*delta)**2 + 4*delta*cov**2)
     beta = 2*cov
     ms = (alpha**2*red_std**2 - 2*alpha*beta*cov + beta**2*blue_std**2)/(alpha**2+beta**2) # what if numerator is negative?
-    if ms < 0:
-        print('ms is negative')
-        print(f'alpha: {alpha}, beta: {beta}, red_std: {red_std}, blue_std: {blue_std}, cov: {cov} ms: {ms}')
-        print(f'points_blue: {points_blue}, points_red: {points_red}')
+    # if ms < 0:
+    #     print('ms is negative')
+    #     print(f'alpha: {alpha}, beta: {beta}, red_std: {red_std}, blue_std: {blue_std}, cov: {cov} ms: {ms}')
+    #     print(f'points_blue: {points_blue}, points_red: {points_red}')
     intrinsic = (abs(ms))/(points_blue_mean * points_red_mean)
     return (intrinsic, extrinsic, intrinsic+extrinsic)
 
