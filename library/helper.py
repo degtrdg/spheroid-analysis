@@ -99,6 +99,17 @@ def _get_clean_composite(composite):
 
 def _get_ellipse_mask(clean_composite, ellipse_percentage = 0.5):
     #Find ellipse
+    (major, minor), center = _get_ellipse(clean_composite, ellipse_percentage)
+
+    #Make a mask of the ellipse that sets everything outside the ellipse to 0
+    inner_mask = np.zeros(clean_composite.shape, dtype=np.uint8)
+    inner_mask = cv2.ellipse(inner_mask,
+                         center,
+                         (major, minor)
+                         , 0, 0, 360, (255,255 ,255), -1)
+    return inner_mask
+
+def _get_ellipse(clean_composite, ellipse_percentage):
     top_left, bottom_right, center = _get_rectangle(clean_composite)
 
     def x_radius(p1,p2):
@@ -106,10 +117,4 @@ def _get_ellipse_mask(clean_composite, ellipse_percentage = 0.5):
     def y_radius(p1,p2):
         return (p2[1]-p1[1])/2
 
-    #Make a mask of the ellipse that sets everything outside the ellipse to 0
-    inner_mask = np.zeros(clean_composite.shape, dtype=np.uint8)
-    inner_mask = cv2.ellipse(inner_mask,
-                         center,
-                         (int(x_radius(top_left,bottom_right)*ellipse_percentage), int(y_radius(top_left,bottom_right)*ellipse_percentage))
-                         , 0, 0, 360, (255,255 ,255), -1)
-    return inner_mask
+    return (int(x_radius(top_left,bottom_right)*ellipse_percentage), int(y_radius(top_left,bottom_right)*ellipse_percentage)), center

@@ -222,8 +222,12 @@ def get_noise_not_centered(points_blue, points_red):
     blue_std = np.std(points_blue)
     alpha = blue_std**2 - (red_std**2)*delta + np.sqrt((blue_std**2 - (red_std**2)*delta)**2 + 4*delta*cov**2)
     beta = 2*cov
-    rms = np.sqrt((alpha**2*red_std**2-2*alpha*beta*cov+beta**2*blue_std**2)/(alpha**2+beta**2))
-    intrinsic = (rms**2)/(points_blue_mean * points_red_mean)
+    ms = (alpha**2*red_std**2 - 2*alpha*beta*cov + beta**2*blue_std**2)/(alpha**2+beta**2) # what if numerator is negative?
+    if ms < 0:
+        print('ms is negative')
+        print(f'alpha: {alpha}, beta: {beta}, red_std: {red_std}, blue_std: {blue_std}, cov: {cov} ms: {ms}')
+        print(f'points_blue: {points_blue}, points_red: {points_red}')
+    intrinsic = (abs(ms))/(points_blue_mean * points_red_mean)
     return (intrinsic, extrinsic, intrinsic+extrinsic)
 
 # Pixel level
@@ -298,6 +302,7 @@ def create_gif(name_of_file, plotting_function, percent_of_side, images, data, n
     create_gif_left_right(name_of_file, plotting_function, left, right, images, data, no_images=no_images)
 
 def create_gif_left_right(name_of_file, plotting_function, left, right, images, data, no_images=False):
+    right = right + 1
     filenames = []
     for i in range(left, right):
         plotting_function(i, data)
@@ -311,7 +316,8 @@ def create_gif_left_right(name_of_file, plotting_function, left, right, images, 
     
     # build gif
     with imageio.get_writer(name_of_file, mode='I') as writer:
-        for i in range(left, right):
+        for i in range(right - left):
+            filenames[i]
             imgs = [Image.open(filenames[i])] if no_images else [Image.fromarray(x) for x in images[i]] + [Image.open(filenames[i])]
             _pil_grid(imgs).save('temp.png')
             image = imageio.imread('temp.png')
@@ -344,6 +350,33 @@ def create_gif_filenames(name_of_file, plotting_function, filenames, data):
     # Remove files
     for filename in filenames:
         os.remove(f'{filename[0]}.png')
+
+def create_custom_gif(name_of_file, plotting_functions, filenames, data):
+    # Make temp directory
+    os.mkdir('temp')
+    # Create image files using each plotting function
+    for idx, plot_func in enumerate(plotting_functions):
+        for i in filenames:
+            plot_func(i, data)
+            # create file name and append it to a list
+            filename = f'temp/{i[0]}_{idx}.png'
+            # save frame
+            plt.savefig(filename)
+            plt.close()
+
+    # build gif
+    with imageio.get_writer(name_of_file, mode='I') as writer:
+        for i in filenames:
+            imgs = [Image.open(f'temp/{i[0]}_{idx}.png') for idx in range(len(plotting_functions))]
+            _pil_grid(imgs).save('temp.png')
+            image = imageio.imread('temp.png')
+            os.remove('temp.png')
+            writer.append_data(image)
+
+    # Remove files in temp directory
+    for filename in filenames:
+        for idx in range(len(plotting_functions)):
+            os.remove(f'temp/{filename[0]}_{idx}.png')
 
 def _pil_grid(images, max_horiz=np.iinfo(int).max):
     n_images = len(images)
